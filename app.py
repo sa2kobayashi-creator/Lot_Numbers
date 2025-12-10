@@ -9,6 +9,7 @@ from database import DatabaseManager
 from analyzer import LotteryAnalyzer
 from data_fetcher import DataFetcher
 import json
+import os
 
 
 # ページ設定
@@ -33,12 +34,16 @@ def main():
     st.title("🎰 宝くじデータ分析アプリ")
     st.markdown("---")
     
+    # セッション状態の初期化（設定）
+    if 'prediction_settings' not in st.session_state:
+        st.session_state.prediction_settings = load_settings()
+    
     # サイドバー
     with st.sidebar:
         st.header("📊 メニュー")
         page = st.radio(
             "ページを選択",
-            ["🏠 ホーム", "📥 データ登録", "📊 データ分析", "📈 統計情報", "🔍 データ検索"]
+            ["🏠 ホーム", "📥 データ登録", "📊 データ分析", "📈 統計情報", "🔍 データ検索", "⚙️ 設定"]
         )
     
     # ページルーティング
@@ -52,6 +57,8 @@ def main():
         show_statistics()
     elif page == "🔍 データ検索":
         show_data_search()
+    elif page == "⚙️ 設定":
+        show_settings()
 
 
 def show_home():
@@ -283,15 +290,125 @@ def show_data_registration():
             key="scrape_type"
         )
         
-        url = st.text_input("スクレイピング対象のURLを入力")
+        # loto-life.netのURLを自動設定
+        url_map = {
+            "ナンバーズ3": "https://loto-life.net/numbers3/past",
+            "ナンバーズ4": "https://loto-life.net/numbers4/past",
+            "ロト6": "https://loto-life.net/loto6/past",
+            "ロト7": "https://loto-life.net/loto7/past",
+            "ミニロト": "https://loto-life.net/mini-loto/past"
+        }
+        
+        default_url = url_map.get(lottery_type_scrape, "")
+        
+        st.info(f"💡 **推奨URL**: {default_url}")
+        
+        url = st.text_input(
+            "スクレイピング対象のURLを入力",
+            value=default_url,
+            key="scrape_url"
+        )
         
         st.info("""
-        **注意**: この機能は汎用的なパーサーを使用しています。
-        実際のサイトのHTML構造に合わせて、`data_fetcher.py`の`_default_parser`メソッドを
-        カスタマイズする必要がある場合があります。
+        **注意**: loto-life.netの場合は専用パーサーが使用されます。
+        他のサイトの場合は汎用パーサーが使用されますが、HTML構造に合わせて
+        カスタマイズが必要な場合があります。
         """)
         
-        if url and st.button("スクレイピング実行"):
+        # 一括実行セクション
+        st.markdown("---")
+        st.subheader("一括スクレイピング")
+        st.write("すべての宝くじタイプを一括でスクレイピングします。")
+        
+        if st.button("一括スクレイピング実行（ナンバーズ3, 4, ロト6, 7, ミニロト）", 
+                     key="batch_scrape_button",
+                     type="primary"):
+            type_map = {
+                "ナンバーズ3": "numbers3",
+                "ナンバーズ4": "numbers",
+                "ロト6": "loto6",
+                "ロト7": "loto7",
+                "ミニロト": "miniloto"
+            }
+            
+            url_map = {
+                "ナンバーズ3": "https://loto-life.net/numbers3/past",
+                "ナンバーズ4": "https://loto-life.net/numbers4/past",
+                "ロト6": "https://loto-life.net/loto6/past",
+                "ロト7": "https://loto-life.net/loto7/past",
+                "ミニロト": "https://loto-life.net/mini-loto/past"
+            }
+            
+            results = {}
+            total_count = 0
+            
+            try:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                lottery_types = ["ナンバーズ3", "ナンバーズ4", "ロト6", "ロト7", "ミニロト"]
+                
+                for idx, lottery_type_name in enumerate(lottery_types):
+                    status_text.text(f"処理中: {lottery_type_name}...")
+                    progress_bar.progress((idx + 1) / len(lottery_types))
+                    
+                    url = url_map[lottery_type_name]
+                    lottery_type_code = type_map[lottery_type_name]
+                    
+                    try:
+                        result = st.session_state.fetcher.scrape_from_url(
+                            url, lottery_type_code
+                        )
+                        results[lottery_type_name] = {
+                            'count': result['count'],
+                            'total_found': result['total_found'],
+                            'duplicated': result['duplicated'],
+                            'status': result['status'],
+                            'message': result['message'],
+                            'url': url
+                        }
+                        total_count += result['count']
+                    except Exception as e:
+                        results[lottery_type_name] = {
+                            'count': 0,
+                            'status': 'error',
+                            'error': str(e),
+                            'url': url
+                        }
+                
+                progress_bar.progress(1.0)
+                status_text.text("完了！")
+                
+                # 結果表示
+                st.markdown("---")
+                st.subheader("一括スクレイピング結果")
+                
+                for lottery_type_name, result in results.items():
+                    if result['status'] == 'success':
+                        st.success(f"✅ **{lottery_type_name}**: {result['message']}")
+                    elif result['status'] == 'duplicated':
+                        st.warning(f"⚠️ **{lottery_type_name}**: **重複しています**")
+                        st.info(f"   {result['message']}")
+                        st.caption(f"   見つかったデータ: {result['total_found']}件（すべて重複）")
+                    elif result['status'] == 'no_data':
+                        st.error(f"❌ **{lottery_type_name}**: **データが見つかりませんでした**")
+                        st.info(f"   {result['message']}")
+                        st.caption(f"   URL: {result['url']}")
+                    else:
+                        st.error(f"❌ **{lottery_type_name}**: **エラーが発生しました**")
+                        st.error(f"   {result.get('message', result.get('error', '不明なエラー'))}")
+                
+                st.info(f"**合計**: {total_count}件のデータを取得しました")
+                
+            except ImportError as e:
+                st.error("Webスクレイピング機能を使用するには、追加のパッケージが必要です。")
+                st.code("pip install beautifulsoup4 lxml", language="bash")
+                st.error(str(e))
+        
+        st.markdown("---")
+        st.subheader("個別スクレイピング")
+        
+        if url and st.button("スクレイピング実行", key="single_scrape_button"):
             type_map = {
                 "ナンバーズ3": "numbers3",
                 "ナンバーズ4": "numbers",
@@ -302,20 +419,22 @@ def show_data_registration():
             
             try:
                 with st.spinner("データを取得中..."):
-                    count = st.session_state.fetcher.scrape_from_url(
+                    result = st.session_state.fetcher.scrape_from_url(
                         url, type_map[lottery_type_scrape]
                     )
                 
-                if count > 0:
-                    st.success(f"{count}件のデータを取得しました！")
+                if result['status'] == 'success':
+                    st.success(result['message'])
+                elif result['status'] == 'duplicated':
+                    st.warning("⚠️ **重複しています**")
+                    st.info(result['message'])
+                elif result['status'] == 'no_data':
+                    st.error("❌ **データが見つかりませんでした**")
+                    st.info(result['message'])
+                    st.caption("URLまたはHTML構造を確認してください。")
                 else:
-                    st.error("データの取得に失敗しました。URLまたはHTML構造を確認してください。")
-                    st.info("""
-                    **トラブルシューティング**:
-                    - URLが正しいか確認してください
-                    - サイトのHTML構造が想定と異なる可能性があります
-                    - `data_fetcher.py`のパーサーをカスタマイズする必要があるかもしれません
-                    """)
+                    st.error(f"❌ **エラーが発生しました**")
+                    st.error(result['message'])
             except ImportError as e:
                 st.error("Webスクレイピング機能を使用するには、追加のパッケージが必要です。")
                 st.code("pip install beautifulsoup4 lxml", language="bash")
@@ -333,12 +452,39 @@ def show_data_analysis():
     
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("開始日", value=None, key="analysis_start")
+        start_date = st.date_input(
+            "開始日", 
+            value=None, 
+            min_value=date(1990, 1, 1),
+            max_value=date.today(),
+            key="analysis_start",
+            help="指定しない場合は全期間のデータを対象にします"
+        )
     with col2:
-        end_date = st.date_input("終了日", value=None, key="analysis_end")
+        end_date = st.date_input(
+            "終了日", 
+            value=None,
+            min_value=date(1990, 1, 1),
+            max_value=date.today(),
+            key="analysis_end",
+            help="指定しない場合は全期間のデータを対象にします"
+        )
     
     start_str = str(start_date) if start_date else None
     end_str = str(end_date) if end_date else None
+    
+    # 日付範囲の表示
+    if start_date or end_date:
+        date_range_text = "分析対象期間: "
+        if start_date and end_date:
+            date_range_text += f"{start_date} ～ {end_date}"
+        elif start_date:
+            date_range_text += f"{start_date} ～ 最新"
+        elif end_date:
+            date_range_text += f"最古 ～ {end_date}"
+        st.info(f"📅 {date_range_text}")
+    else:
+        st.info("📅 **分析対象期間: 全期間**（開始日・終了日が未指定のため、データベース内のすべてのデータを対象にします）")
     
     tab1, tab2, tab3, tab4 = st.tabs(["出現頻度", "推奨数字", "ペア分析", "詳細分析"])
     
@@ -394,7 +540,34 @@ def show_data_analysis():
         )
         
         if lottery_type in ["ナンバーズ3", "ナンバーズ4"]:
-            st.info("ナンバーズの推奨数字機能は開発中です")
+            digits = 3 if lottery_type == "ナンバーズ3" else 4
+            
+            # 高度な推奨数字生成を使用
+            use_advanced = st.checkbox(
+                "高度な分析を使用（設定で選択した要素を考慮）",
+                value=False,
+                key="use_advanced_prediction"
+            )
+            
+            if use_advanced:
+                recommended_list = st.session_state.analyzer.get_recommended_numbers_numbers_advanced(
+                    digits, strategy, st.session_state.prediction_settings,
+                    start_str, end_str, top_n=5
+                )
+            else:
+                recommended_list = st.session_state.analyzer.get_recommended_numbers_numbers(
+                    digits, strategy, start_str, end_str, top_n=5
+                )
+            
+            if recommended_list:
+                st.write("**推奨数字（ランキング）:**")
+                for rank, number in enumerate(recommended_list, 1):
+                    st.write(f"{rank}位: **{number}**")
+                st.write(f"**数字の桁数:** {digits}桁")
+                if use_advanced:
+                    st.info("💡 高度な分析を使用しています。設定ページで使用する要素を変更できます。")
+            else:
+                st.warning("データが不足しています")
         else:
             type_map = {
                 "ロト6": "loto6",
@@ -407,18 +580,41 @@ def show_data_analysis():
                 "ミニロト": 5
             }
             
-            recommended = st.session_state.analyzer.get_recommended_numbers(
-                type_map[lottery_type],
-                strategy,
-                count_map[lottery_type],
-                start_str,
-                end_str
+            # 高度な推奨数字生成を使用
+            use_advanced = st.checkbox(
+                "高度な分析を使用（設定で選択した要素を考慮）",
+                value=False,
+                key="use_advanced_prediction_loto"
             )
             
-            if recommended:
-                st.write("**推奨数字:**")
-                st.write(sorted(recommended))
-                st.write(f"**数字の数:** {len(recommended)}")
+            if use_advanced:
+                with st.spinner("高度な分析を実行中...（数秒かかる場合があります）"):
+                    recommended_patterns = st.session_state.analyzer.get_recommended_numbers_multiple_advanced(
+                        type_map[lottery_type],
+                        strategy,
+                        count_map[lottery_type],
+                        st.session_state.prediction_settings,
+                        top_n=5,
+                        start_date=start_str,
+                        end_date=end_str
+                    )
+            else:
+                recommended_patterns = st.session_state.analyzer.get_recommended_numbers_multiple(
+                    type_map[lottery_type],
+                    strategy,
+                    count_map[lottery_type],
+                    top_n=5,
+                    start_date=start_str,
+                    end_date=end_str
+                )
+            
+            if recommended_patterns:
+                st.write("**推奨数字（ランキング）:**")
+                for rank, pattern in enumerate(recommended_patterns, 1):
+                    st.write(f"{rank}位: **{sorted(pattern)}**")
+                st.write(f"**1パターンあたりの数字の数:** {count_map[lottery_type]}")
+                if use_advanced:
+                    st.info("💡 高度な分析を使用しています。設定ページで使用する要素を変更できます。")
             else:
                 st.warning("データが不足しています")
     
@@ -427,7 +623,15 @@ def show_data_analysis():
         top_n = st.slider("表示する上位ペア数", 10, 50, 20)
         
         if lottery_type in ["ナンバーズ3", "ナンバーズ4"]:
-            st.info("ナンバーズのペア分析機能は開発中です")
+            digits = 3 if lottery_type == "ナンバーズ3" else 4
+            df = st.session_state.analyzer.analyze_numbers_pairs(
+                digits, start_str, end_str, top_n
+            )
+            
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("データがありません")
         else:
             type_map = {
                 "ロト6": "loto6",
@@ -451,7 +655,183 @@ def show_data_analysis():
         st.subheader("詳細分析")
         
         if lottery_type in ["ナンバーズ3", "ナンバーズ4"]:
-            st.info("ナンバーズの詳細分析機能は開発中です")
+            digits = 3 if lottery_type == "ナンバーズ3" else 4
+            
+            # 詳細分析
+            detailed = st.session_state.analyzer.get_numbers_detailed_analysis(
+                digits, start_str, end_str
+            )
+            
+            if detailed:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**各桁の出現頻度が高い数字（上位5個）**")
+                    for digit, numbers in detailed.get('hot_digits', {}).items():
+                        st.write(f"{digit}: {numbers}")
+                
+                with col2:
+                    st.write("**各桁の出現頻度が低い数字（下位5個）**")
+                    for digit, numbers in detailed.get('cold_digits', {}).items():
+                        st.write(f"{digit}: {numbers}")
+            
+            # 追加分析
+            st.markdown("---")
+            st.subheader("追加分析")
+            
+            analysis_tabs = st.tabs([
+                "合計値", "奇偶比率", "大小比率", "連番", "重複", 
+                "前回差", "リピート率", "ミラー数字", "デジタルルート",
+                "トレンド", "EMA", "ランレングス", "マルコフ連鎖"
+            ])
+            
+            with analysis_tabs[0]:  # 合計値
+                sum_df = st.session_state.analyzer.analyze_numbers_sum(digits, start_str, end_str)
+                if not sum_df.empty:
+                    st.dataframe(sum_df, use_container_width=True)
+                    st.bar_chart(sum_df.set_index('合計値'))
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[1]:  # 奇偶比率
+                odd_even = st.session_state.analyzer.analyze_numbers_odd_even_ratio(digits, start_str, end_str)
+                if odd_even:
+                    st.write(f"**平均奇数個数:** {odd_even.get('平均奇数個数', 0):.2f}")
+                    st.write(f"**平均偶数個数:** {odd_even.get('平均偶数個数', 0):.2f}")
+                    if 'パターン分布' in odd_even:
+                        st.dataframe(odd_even['パターン分布'], use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[2]:  # 大小比率
+                high_low = st.session_state.analyzer.analyze_numbers_high_low_ratio(digits, start_str, end_str)
+                if high_low:
+                    st.write(f"**平均高数字個数:** {high_low.get('平均高数字個数', 0):.2f}")
+                    st.write(f"**平均低数字個数:** {high_low.get('平均低数字個数', 0):.2f}")
+                    if 'パターン分布' in high_low:
+                        st.dataframe(high_low['パターン分布'], use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[3]:  # 連番
+                consecutive_df = st.session_state.analyzer.analyze_numbers_consecutive(digits, start_str, end_str)
+                if not consecutive_df.empty:
+                    st.dataframe(consecutive_df, use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[4]:  # 重複
+                duplicates = st.session_state.analyzer.analyze_numbers_duplicates(digits, start_str, end_str)
+                if duplicates:
+                    for key, value in duplicates.items():
+                        st.write(f"**{key}:** {value['回数']}回 ({value['割合']:.2f}%)")
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[5]:  # 前回差
+                diff_df = st.session_state.analyzer.analyze_numbers_previous_difference(digits, start_str, end_str)
+                if not diff_df.empty:
+                    st.dataframe(diff_df, use_container_width=True)
+                    st.bar_chart(diff_df.set_index('差'))
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[6]:  # リピート率
+                repeat = st.session_state.analyzer.analyze_numbers_repeat_rate(digits, start_str, end_str)
+                if repeat:
+                    for key, value in repeat.items():
+                        st.write(f"**{key}:** {value:.2f}")
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[7]:  # ミラー数字
+                mirror_df = st.session_state.analyzer.analyze_numbers_mirror(digits, start_str, end_str)
+                if not mirror_df.empty:
+                    st.dataframe(mirror_df, use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[8]:  # デジタルルート
+                root_df = st.session_state.analyzer.analyze_numbers_digital_root(digits, start_str, end_str)
+                if not root_df.empty:
+                    st.dataframe(root_df, use_container_width=True)
+                    st.bar_chart(root_df.set_index('デジタルルート'))
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[9]:  # トレンド
+                trend_df = st.session_state.analyzer.analyze_numbers_trend(digits, periods=10, start_date=start_str, end_date=end_str)
+                if not trend_df.empty:
+                    st.dataframe(trend_df, use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[10]:  # EMA
+                ema_df = st.session_state.analyzer.analyze_numbers_ema(digits, span=10, start_date=start_str, end_date=end_str)
+                if not ema_df.empty:
+                    st.dataframe(ema_df, use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[11]:  # ランレングス
+                runlength = st.session_state.analyzer.analyze_numbers_runlength(digits, start_str, end_str)
+                if runlength:
+                    for key, value in runlength.items():
+                        st.write(f"**{key}**")
+                        st.write(f"- 平均ランレングス: {value['平均ランレングス']:.2f}")
+                        st.write(f"- 最大ランレングス: {value['最大ランレングス']}")
+                        st.write(f"- 分布: {dict(value['ランレングス分布'])}")
+                else:
+                    st.warning("データがありません")
+            
+            with analysis_tabs[12]:  # マルコフ連鎖
+                markov = st.session_state.analyzer.analyze_numbers_markov(digits, start_str, end_str)
+                if markov:
+                    for key, matrix in markov.items():
+                        st.write(f"**{key}の遷移確率行列**")
+                        st.dataframe(matrix, use_container_width=True)
+                else:
+                    st.warning("データがありません")
+            
+            # 日付との関係性分析
+            st.markdown("---")
+            st.subheader("日付との関係性分析")
+            
+            date_analysis = st.session_state.analyzer.analyze_date_relationship_numbers(
+                digits, start_str, end_str
+            )
+            
+            if date_analysis:
+                # 曜日別
+                if 'weekday' in date_analysis:
+                    st.write("**曜日別の抽選回数**")
+                    st.dataframe(date_analysis['weekday'], use_container_width=True)
+                    st.bar_chart(date_analysis['weekday'].set_index('曜日'))
+                
+                # 月別
+                if 'month' in date_analysis:
+                    st.write("**月別の抽選回数**")
+                    st.dataframe(date_analysis['month'], use_container_width=True)
+                    st.bar_chart(date_analysis['month'].set_index('月'))
+                
+                # 日付別
+                if 'day' in date_analysis:
+                    st.write("**日付（1-31日）別の抽選回数**")
+                    st.dataframe(date_analysis['day'], use_container_width=True)
+                    st.bar_chart(date_analysis['day'].set_index('日'))
+                
+                # 日付との相関
+                if 'digit_date_correlation' in date_analysis:
+                    st.write("**各桁の数字と日付（1-31日）の相関係数**")
+                    st.dataframe(date_analysis['digit_date_correlation'], use_container_width=True)
+                    st.info("相関係数が1に近いほど正の相関、-1に近いほど負の相関があります。")
+                
+                # 月初・月末
+                if 'month_period' in date_analysis:
+                    st.write("**月初・月末の出現傾向**")
+                    st.dataframe(date_analysis['month_period'], use_container_width=True)
+                    st.bar_chart(date_analysis['month_period'].set_index('期間'))
+            else:
+                st.warning("データがありません")
         else:
             type_map = {
                 "ロト6": "loto6",
@@ -520,9 +900,21 @@ def show_data_search():
     
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("開始日", value=None, key="search_start")
+        start_date = st.date_input(
+            "開始日", 
+            value=None,
+            min_value=date(1990, 1, 1),
+            max_value=date.today(),
+            key="search_start"
+        )
     with col2:
-        end_date = st.date_input("終了日", value=None, key="search_end")
+        end_date = st.date_input(
+            "終了日", 
+            value=None,
+            min_value=date(1990, 1, 1),
+            max_value=date.today(),
+            key="search_end"
+        )
     
     start_str = str(start_date) if start_date else None
     end_str = str(end_date) if end_date else None
@@ -560,6 +952,190 @@ def show_data_search():
             )
         else:
             st.warning("該当するデータがありません")
+
+
+def load_settings():
+    """設定ファイルから設定を読み込む"""
+    settings_file = "prediction_settings.json"
+    default_settings = {
+        'use_frequency': True,
+        'use_sum': False,
+        'use_odd_even': False,
+        'use_high_low': False,
+        'use_consecutive': False,
+        'use_duplicates': False,
+        'use_previous_diff': False,
+        'use_repeat_rate': False,
+        'use_mirror': False,
+        'use_digital_root': False,
+        'use_trend': False,
+        'use_ema': False,
+        'use_runlength': False,
+        'use_markov': False
+    }
+    
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                loaded_settings = json.load(f)
+                # デフォルト設定とマージ（新しいキーが追加された場合に対応）
+                for key in default_settings:
+                    if key not in loaded_settings:
+                        loaded_settings[key] = default_settings[key]
+                return loaded_settings
+        except (json.JSONDecodeError, IOError) as e:
+            st.warning(f"設定ファイルの読み込みに失敗しました。デフォルト設定を使用します。エラー: {e}")
+            return default_settings
+    else:
+        return default_settings
+
+
+def save_settings(settings: dict):
+    """設定をファイルに保存する"""
+    settings_file = "prediction_settings.json"
+    try:
+        with open(settings_file, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+        return True
+    except IOError as e:
+        st.error(f"設定ファイルの保存に失敗しました: {e}")
+        return False
+
+
+def show_settings():
+    """設定ページ"""
+    st.header("⚙️ 予測設定")
+    st.markdown("予測に使用する分析要素を選択してください。")
+    
+    st.subheader("基本分析")
+    use_frequency = st.checkbox(
+        "数字の出現頻度", 
+        value=st.session_state.prediction_settings['use_frequency'],
+        help="各数字（0〜9）の出現頻度を考慮",
+        key="setting_frequency"
+    )
+    
+    st.subheader("統計的分析")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        use_sum = st.checkbox(
+            "合計値分析", 
+            value=st.session_state.prediction_settings['use_sum'],
+            help="数字の合計値の傾向を考慮",
+            key="setting_sum"
+        )
+        use_odd_even = st.checkbox(
+            "奇偶比率", 
+            value=st.session_state.prediction_settings['use_odd_even'],
+            help="奇数と偶数の比率を考慮",
+            key="setting_odd_even"
+        )
+        use_high_low = st.checkbox(
+            "大小比率", 
+            value=st.session_state.prediction_settings['use_high_low'],
+            help="高数字（5-9）と低数字（0-4）の比率を考慮",
+            key="setting_high_low"
+        )
+        use_digital_root = st.checkbox(
+            "デジタルルート", 
+            value=st.session_state.prediction_settings['use_digital_root'],
+            help="合計値を1桁化した値の傾向を考慮",
+            key="setting_digital_root"
+        )
+    
+    with col2:
+        use_consecutive = st.checkbox(
+            "連番分析", 
+            value=st.session_state.prediction_settings['use_consecutive'],
+            help="連続する数字の出現率を考慮",
+            key="setting_consecutive"
+        )
+        use_duplicates = st.checkbox(
+            "重複数字分析", 
+            value=st.session_state.prediction_settings['use_duplicates'],
+            help="同一数字の複数出現（ダブル/トリプル）を考慮",
+            key="setting_duplicates"
+        )
+        use_mirror = st.checkbox(
+            "ミラー数字", 
+            value=st.session_state.prediction_settings['use_mirror'],
+            help="ミラー数字（0↔9, 1↔8など）の相関を考慮",
+            key="setting_mirror"
+        )
+    
+    st.subheader("時系列分析")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        use_trend = st.checkbox(
+            "トレンド分析", 
+            value=st.session_state.prediction_settings['use_trend'],
+            help="過去n回のトレンドを考慮",
+            key="setting_trend"
+        )
+        use_ema = st.checkbox(
+            "EMA（指数移動平均）", 
+            value=st.session_state.prediction_settings['use_ema'],
+            help="指数移動平均からの偏差を考慮",
+            key="setting_ema"
+        )
+        use_runlength = st.checkbox(
+            "ランレングス", 
+            value=st.session_state.prediction_settings['use_runlength'],
+            help="連続で出る数字の長さを考慮",
+            key="setting_runlength"
+        )
+    
+    with col2:
+        use_previous_diff = st.checkbox(
+            "前回との差", 
+            value=st.session_state.prediction_settings['use_previous_diff'],
+            help="前回数字との差の傾向を考慮",
+            key="setting_previous_diff"
+        )
+        use_repeat_rate = st.checkbox(
+            "リピート率", 
+            value=st.session_state.prediction_settings['use_repeat_rate'],
+            help="前回・前々回からの引っ張り数字を考慮",
+            key="setting_repeat_rate"
+        )
+        use_markov = st.checkbox(
+            "マルコフ連鎖", 
+            value=st.session_state.prediction_settings['use_markov'],
+            help="遷移確率を考慮",
+            key="setting_markov"
+        )
+    
+    st.markdown("---")
+    
+    # 設定を更新
+    st.session_state.prediction_settings = {
+        'use_frequency': use_frequency,
+        'use_sum': use_sum,
+        'use_odd_even': use_odd_even,
+        'use_high_low': use_high_low,
+        'use_consecutive': use_consecutive,
+        'use_duplicates': use_duplicates,
+        'use_previous_diff': use_previous_diff,
+        'use_repeat_rate': use_repeat_rate,
+        'use_mirror': use_mirror,
+        'use_digital_root': use_digital_root,
+        'use_trend': use_trend,
+        'use_ema': use_ema,
+        'use_runlength': use_runlength,
+        'use_markov': use_markov
+    }
+    
+    if st.button("設定を保存", key="save_settings"):
+        if save_settings(st.session_state.prediction_settings):
+            st.success("✅ 設定を保存しました！再起動後も設定が保持されます。")
+        else:
+            st.error("❌ 設定の保存に失敗しました。")
+    
+    st.markdown("---")
+    st.subheader("現在の設定")
+    st.json(st.session_state.prediction_settings)
 
 
 if __name__ == "__main__":

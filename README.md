@@ -40,6 +40,21 @@ streamlit run app.py
 
 ブラウザが自動的に開き、アプリケーションが表示されます。
 
+### サーバーの停止
+
+#### 方法1: ターミナルで停止
+ターミナルで `Ctrl + C` を押す
+
+#### 方法2: バッチファイルを使用（Windows）
+```bash
+stop_server.bat
+```
+
+#### 方法3: PowerShellスクリプトを使用（Windows）
+```powershell
+.\stop_server.ps1
+```
+
 ## 過去データの入手方法
 
 過去データを入手する方法については、**`DATA_SOURCES.md`** ファイルを参照してください。

@@ -1,5 +1,5 @@
-﻿Miniロト
-ロト6
-ロト7
-ナンバーズ4
-
+﻿Miniロト	https://loto-life.net/mini-loto/past
+ロト6		https://loto-life.net/loto6/past
+ロト7		https://loto-life.net/loto7/past
+ナンバーズ4	https://loto-life.net/numbers4/past
+ナンバーズ3	https://loto-life.net/numbers3/past

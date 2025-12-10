@@ -1,0 +1,16 @@
+{
+  "use_frequency": true,
+  "use_sum": true,
+  "use_odd_even": true,
+  "use_high_low": true,
+  "use_consecutive": true,
+  "use_duplicates": true,
+  "use_previous_diff": true,
+  "use_repeat_rate": true,
+  "use_mirror": true,
+  "use_digital_root": true,
+  "use_trend": true,
+  "use_ema": true,
+  "use_runlength": true,
+  "use_markov": true
+}

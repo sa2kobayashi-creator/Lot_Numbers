@@ -327,13 +327,28 @@ class DatabaseManager:
         cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
         count = cursor.fetchone()[0]
         
-        cursor.execute(f"SELECT MIN(draw_date) as min_date, MAX(draw_date) as max_date FROM {table_name}")
+        # 日付形式（YYYY-MM-DDまたはYYYY/MM/DD）のデータのみを取得
+        # 数値や不正な形式のデータを除外
+        cursor.execute(f"""
+            SELECT MIN(draw_date) as min_date, MAX(draw_date) as max_date 
+            FROM {table_name}
+            WHERE draw_date LIKE '____-__-__' OR draw_date LIKE '____/__/__'
+        """)
         date_range = cursor.fetchone()
+        
+        min_date = date_range[0] if date_range[0] else None
+        max_date = date_range[1] if date_range[1] else None
+        
+        # 日付形式を統一（YYYY-MM-DD）
+        if min_date and '/' in str(min_date):
+            min_date = str(min_date).replace('/', '-')
+        if max_date and '/' in str(max_date):
+            max_date = str(max_date).replace('/', '-')
         
         return {
             "count": count,
-            "min_date": date_range[0] if date_range[0] else None,
-            "max_date": date_range[1] if date_range[1] else None
+            "min_date": min_date,
+            "max_date": max_date
         }
     
     def close(self):

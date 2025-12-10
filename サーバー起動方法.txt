@@ -1,0 +1,10 @@
+Streamlitアプリの起動方法
+プロジェクトディレクトリに移動
+cd "C:\Users\i-kob\OneDrive\デスクトップ\Development\Lot_Numbers"
+Streamlitアプリを起動
+streamlit run app.py
+ブラウザで確認
+起動後、自動でブラウザが開きます
+開かない場合は、表示されたURL（例: http://localhost:8501）にアクセス
+停止方法
+ターミナルで Ctrl + C を押す
