@@ -327,29 +327,82 @@ class DatabaseManager:
         cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
         count = cursor.fetchone()[0]
         
-        # 日付形式（YYYY-MM-DDまたはYYYY/MM/DD）のデータのみを取得
-        # 数値や不正な形式のデータを除外
-        cursor.execute(f"""
-            SELECT MIN(draw_date) as min_date, MAX(draw_date) as max_date 
-            FROM {table_name}
-            WHERE draw_date LIKE '____-__-__' OR draw_date LIKE '____/__/__'
-        """)
-        date_range = cursor.fetchone()
+        # すべての日付を取得してPython側で正規化・比較
+        cursor.execute(f"SELECT draw_date FROM {table_name}")
+        all_dates = cursor.fetchall()
         
-        min_date = date_range[0] if date_range[0] else None
-        max_date = date_range[1] if date_range[1] else None
+        valid_dates = []
+        for (date_str,) in all_dates:
+            if date_str is None:
+                continue
+            
+            date_str = str(date_str).strip()
+            if not date_str:
+                continue
+            
+            # 日付形式を正規化（YYYY-MM-DD形式に変換）
+            normalized_date = self._normalize_date_for_statistics(date_str)
+            if normalized_date:
+                valid_dates.append(normalized_date)
         
-        # 日付形式を統一（YYYY-MM-DD）
-        if min_date and '/' in str(min_date):
-            min_date = str(min_date).replace('/', '-')
-        if max_date and '/' in str(max_date):
-            max_date = str(max_date).replace('/', '-')
+        min_date = min(valid_dates) if valid_dates else None
+        max_date = max(valid_dates) if valid_dates else None
         
         return {
             "count": count,
             "min_date": min_date,
             "max_date": max_date
         }
+    
+    def _normalize_date_for_statistics(self, date_str: str) -> Optional[str]:
+        """
+        日付文字列をYYYY-MM-DD形式に正規化
+        
+        Args:
+            date_str: 日付文字列（様々な形式に対応）
+        
+        Returns:
+            正規化された日付文字列（YYYY-MM-DD）、無効な場合はNone
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None
+        
+        date_str = date_str.strip()
+        
+        # 数値のみや不正な形式は除外
+        if date_str.isdigit() or len(date_str) < 8:
+            return None
+        
+        try:
+            # YYYY/MM/DD または YYYY/M/D 形式
+            if '/' in date_str:
+                parts = date_str.split('/')
+                if len(parts) == 3:
+                    year, month, day = parts
+                    # 数値チェック
+                    if year.isdigit() and month.isdigit() and day.isdigit():
+                        year_int = int(year)
+                        month_int = int(month)
+                        day_int = int(day)
+                        # 妥当性チェック（簡易版）
+                        if 1900 <= year_int <= 2100 and 1 <= month_int <= 12 and 1 <= day_int <= 31:
+                            return f"{year_int:04d}-{month_int:02d}-{day_int:02d}"
+            
+            # YYYY-MM-DD 形式
+            elif '-' in date_str:
+                parts = date_str.split('-')
+                if len(parts) == 3:
+                    year, month, day = parts
+                    if year.isdigit() and month.isdigit() and day.isdigit():
+                        year_int = int(year)
+                        month_int = int(month)
+                        day_int = int(day)
+                        if 1900 <= year_int <= 2100 and 1 <= month_int <= 12 and 1 <= day_int <= 31:
+                            return f"{year_int:04d}-{month_int:02d}-{day_int:02d}"
+        except (ValueError, AttributeError):
+            return None
+        
+        return None
     
     def close(self):
         """データベース接続を閉じる"""

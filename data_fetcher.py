@@ -173,25 +173,56 @@ class DataFetcher:
             elif lottery_type == 'miniloto':
                 for _, row in df.iterrows():
                     try:
-                        # 列インデックスでアクセス（1列目: 抽選回数, 2列目: 抽選日, 3-7列目: 当選番号, 8列目: ボーナス）
-                        draw_date = str(row.iloc[1]) if len(row) > 1 else None
-                        draw_number = int(row.iloc[0]) if len(row) > 0 else None
+                        # 列名または列インデックスでアクセス
+                        # CSV形式: draw_date,draw_number,numbers,bonus_number
+                        draw_date_raw = row.get('draw_date', row.iloc[0] if len(row) > 0 else None)
+                        draw_number = int(row.get('draw_number', row.iloc[1] if len(row) > 1 else None))
                         
-                        # 3-7列目が当選番号（5個）
+                        # 日付を正規化（YYYY-MM-DD形式に変換）
+                        draw_date = self._normalize_date(str(draw_date_raw)) if draw_date_raw else None
+                        if not draw_date:
+                            continue
+                        
+                        # 当選番号を取得（列名または列インデックス）
                         numbers = []
-                        for i in range(2, 7):
-                            if i < len(row):
+                        if 'numbers' in row:
+                            # JSON形式の文字列をパース
+                            numbers_str = row['numbers']
+                            if isinstance(numbers_str, str):
                                 try:
-                                    num = int(row.iloc[i])
-                                    numbers.append(num)
-                                except (ValueError, TypeError):
-                                    continue
+                                    numbers = ast.literal_eval(numbers_str)
+                                except (ValueError, SyntaxError):
+                                    try:
+                                        numbers = json.loads(numbers_str)
+                                    except (json.JSONDecodeError, ValueError):
+                                        continue
+                            elif isinstance(numbers_str, list):
+                                numbers = numbers_str
+                        else:
+                            # 列インデックスで取得（2列目がnumbersのJSON形式）
+                            if len(row) > 2:
+                                numbers_str = row.iloc[2]
+                                if isinstance(numbers_str, str):
+                                    try:
+                                        numbers = ast.literal_eval(numbers_str)
+                                    except (ValueError, SyntaxError):
+                                        try:
+                                            numbers = json.loads(numbers_str)
+                                        except (json.JSONDecodeError, ValueError):
+                                            pass
                         
-                        # 8列目がボーナス番号
+                        # ボーナス番号を取得
                         bonus = None
-                        if len(row) > 7:
+                        if 'bonus_number' in row:
+                            bonus_val = row['bonus_number']
+                            if pd.notna(bonus_val) and str(bonus_val).strip():
+                                try:
+                                    bonus = int(bonus_val)
+                                except (ValueError, TypeError):
+                                    pass
+                        elif len(row) > 3:
                             try:
-                                bonus_val = row.iloc[7]
+                                bonus_val = row.iloc[3]
                                 if pd.notna(bonus_val) and str(bonus_val).strip():
                                     bonus = int(bonus_val)
                             except (ValueError, TypeError):

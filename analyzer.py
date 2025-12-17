@@ -47,7 +47,22 @@ class LotteryAnalyzer:
         digit_counts = {f'桁{i}': Counter() for i in range(1, digits + 1)}
         
         for winning_number in df['winning_number']:
-            for i, digit in enumerate(winning_number):
+            # None や NaN、空文字など不正な値はスキップ
+            if winning_number is None or (isinstance(winning_number, float) and pd.isna(winning_number)):
+                continue
+            
+            # 数値として保存されている場合なども文字列に変換
+            winning_str = str(winning_number)
+            if not winning_str:
+                continue
+            
+            for i, digit in enumerate(winning_str):
+                # digits 以上の桁は無視（安全側に倒す）
+                if i >= digits:
+                    break
+                # 数字以外の文字（スペースなど）は無視
+                if not digit.isdigit():
+                    continue
                 digit_counts[f'桁{i+1}'][int(digit)] += 1
         
         # DataFrameに変換

@@ -1,4 +1,4 @@
-Streamlitアプリの起動方法
+﻿Streamlitアプリの起動方法
 プロジェクトディレクトリに移動
 cd "C:\Users\i-kob\OneDrive\デスクトップ\Development\Lot_Numbers"
 Streamlitアプリを起動
