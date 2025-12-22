@@ -247,15 +247,18 @@ class DatabaseManager:
         query = "SELECT * FROM numbers WHERE 1=1"
         params = []
         
-        if start_date:
+        if start_date and start_date.strip():
             query += " AND draw_date >= ?"
-            params.append(start_date)
-        if end_date:
+            params.append(start_date.strip())
+        if end_date and end_date.strip():
             query += " AND draw_date <= ?"
-            params.append(end_date)
+            params.append(end_date.strip())
         
         query += " ORDER BY draw_date DESC, draw_number DESC"
-        return pd.read_sql_query(query, self.conn, params=params)
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        else:
+            return pd.read_sql_query(query, self.conn)
 
     def get_numbers3_data(self, start_date: Optional[str] = None, 
                          end_date: Optional[str] = None) -> pd.DataFrame:
@@ -263,15 +266,18 @@ class DatabaseManager:
         query = "SELECT * FROM numbers3 WHERE 1=1"
         params = []
         
-        if start_date:
+        if start_date and start_date.strip():
             query += " AND draw_date >= ?"
-            params.append(start_date)
-        if end_date:
+            params.append(start_date.strip())
+        if end_date and end_date.strip():
             query += " AND draw_date <= ?"
-            params.append(end_date)
+            params.append(end_date.strip())
         
         query += " ORDER BY draw_date DESC, draw_number DESC"
-        return pd.read_sql_query(query, self.conn, params=params)
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        else:
+            return pd.read_sql_query(query, self.conn)
     
     def get_loto6_data(self, start_date: Optional[str] = None, 
                       end_date: Optional[str] = None) -> pd.DataFrame:
@@ -279,15 +285,18 @@ class DatabaseManager:
         query = "SELECT * FROM loto6 WHERE 1=1"
         params = []
         
-        if start_date:
+        if start_date and start_date.strip():
             query += " AND draw_date >= ?"
-            params.append(start_date)
-        if end_date:
+            params.append(start_date.strip())
+        if end_date and end_date.strip():
             query += " AND draw_date <= ?"
-            params.append(end_date)
+            params.append(end_date.strip())
         
         query += " ORDER BY draw_date DESC, draw_number DESC"
-        return pd.read_sql_query(query, self.conn, params=params)
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        else:
+            return pd.read_sql_query(query, self.conn)
     
     def get_loto7_data(self, start_date: Optional[str] = None, 
                       end_date: Optional[str] = None) -> pd.DataFrame:
@@ -295,15 +304,18 @@ class DatabaseManager:
         query = "SELECT * FROM loto7 WHERE 1=1"
         params = []
         
-        if start_date:
+        if start_date and start_date.strip():
             query += " AND draw_date >= ?"
-            params.append(start_date)
-        if end_date:
+            params.append(start_date.strip())
+        if end_date and end_date.strip():
             query += " AND draw_date <= ?"
-            params.append(end_date)
+            params.append(end_date.strip())
         
         query += " ORDER BY draw_date DESC, draw_number DESC"
-        return pd.read_sql_query(query, self.conn, params=params)
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        else:
+            return pd.read_sql_query(query, self.conn)
     
     def get_miniloto_data(self, start_date: Optional[str] = None, 
                          end_date: Optional[str] = None) -> pd.DataFrame:
@@ -311,15 +323,18 @@ class DatabaseManager:
         query = "SELECT * FROM miniloto WHERE 1=1"
         params = []
         
-        if start_date:
+        if start_date and start_date.strip():
             query += " AND draw_date >= ?"
-            params.append(start_date)
-        if end_date:
+            params.append(start_date.strip())
+        if end_date and end_date.strip():
             query += " AND draw_date <= ?"
-            params.append(end_date)
+            params.append(end_date.strip())
         
         query += " ORDER BY draw_date DESC, draw_number DESC"
-        return pd.read_sql_query(query, self.conn, params=params)
+        if params:
+            return pd.read_sql_query(query, self.conn, params=params)
+        else:
+            return pd.read_sql_query(query, self.conn)
     
     def get_statistics(self, table_name: str) -> Dict[str, Any]:
         """統計情報の取得"""
