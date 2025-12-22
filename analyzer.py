@@ -1400,8 +1400,96 @@ class LotteryAnalyzer:
                 top_digits = list(range(10))
             digit_options[col] = top_digits
         
-        # 組み合わせを生成
-        combinations = list(itertools.product(*digit_options.values()))
+        # パフォーマンス最適化: すべての分析結果を事前に計算してキャッシュ
+        cache = {}
+        
+        # 2. 合計値分析（事前計算）
+        if settings.get('use_sum', False):
+            sum_df = self.analyze_numbers_sum(digits, start_date, end_date)
+            if not sum_df.empty:
+                cache['most_common_sum'] = sum_df.loc[sum_df['出現回数'].idxmax(), '合計値']
+            else:
+                cache['most_common_sum'] = None
+        
+        # 3. 奇偶比率分析（事前計算）
+        if settings.get('use_odd_even', False):
+            odd_even = self.analyze_numbers_odd_even_ratio(digits, start_date, end_date)
+            cache['avg_odd'] = odd_even.get('平均奇数個数', digits / 2) if odd_even else digits / 2
+        
+        # 4. 大小比率分析（事前計算）
+        if settings.get('use_high_low', False):
+            high_low = self.analyze_numbers_high_low_ratio(digits, start_date, end_date)
+            cache['avg_high'] = high_low.get('平均高数字個数', digits / 2) if high_low else digits / 2
+        
+        # 5. 連番分析（事前計算 - 実際にはループ内でチェックするだけなので不要）
+        
+        # 6. 重複分析（事前計算 - 実際にはループ内でチェックするだけなので不要）
+        
+        # 7. デジタルルート分析（事前計算）
+        if settings.get('use_digital_root', False):
+            root_df = self.analyze_numbers_digital_root(digits, start_date, end_date)
+            if not root_df.empty:
+                cache['most_common_root'] = root_df.loc[root_df['出現回数'].idxmax(), 'デジタルルート']
+            else:
+                cache['most_common_root'] = None
+        
+        # 8. トレンド分析（事前計算）
+        if settings.get('use_trend', False):
+            trend_df = self.analyze_numbers_trend(digits, periods=10, start_date=start_date, end_date=end_date)
+            cache['trend_avg'] = {}
+            if not trend_df.empty:
+                for i in range(digits):
+                    col = f'桁{i+1}'
+                    if col in trend_df['桁'].values:
+                        cache['trend_avg'][i] = trend_df[trend_df['桁'] == i+1][f'過去10回平均'].values[0]
+        
+        # 9. EMA分析（事前計算）
+        if settings.get('use_ema', False):
+            ema_df = self.analyze_numbers_ema(digits, span=10, start_date=start_date, end_date=end_date)
+            cache['ema_value'] = {}
+            if not ema_df.empty:
+                for i in range(digits):
+                    col = f'桁{i+1}'
+                    if col in ema_df['桁'].values:
+                        cache['ema_value'][i] = ema_df[ema_df['桁'] == i+1]['EMA(10)'].values[0]
+        
+        # 10. マルコフ連鎖分析（事前計算）
+        if settings.get('use_markov', False):
+            markov_matrices = self.analyze_numbers_markov(digits, start_date, end_date)
+            cache['markov_matrices'] = markov_matrices
+            # 最新のデータを取得
+            if digits == 3:
+                df = self.db.get_numbers3_data(start_date, end_date)
+            else:
+                df = self.db.get_numbers_data(start_date, end_date)
+            
+            if not df.empty:
+                df = df.sort_values('draw_date')
+                cache['last_number'] = df.iloc[-1]['winning_number']
+            else:
+                cache['last_number'] = None
+        
+        # 組み合わせを生成（候補数を制限してパフォーマンス向上）
+        # 各桁の候補数を3-4個に制限（5個だと組み合わせが多すぎる）
+        limited_digit_options = {}
+        for col in digit_options:
+            limited_digit_options[col] = digit_options[col][:4]  # 上位4個に制限
+        
+        combinations = list(itertools.product(*limited_digit_options.values()))
+        
+        # 組み合わせ数が多すぎる場合はさらに制限
+        max_combinations = 200  # 最大200個の組み合わせを評価
+        if len(combinations) > max_combinations:
+            # 出現頻度が高い組み合わせを優先的に選択
+            pre_scored = []
+            for combo in combinations:
+                freq_score = 0
+                for i, digit in enumerate(combo):
+                    col = list(freq_df.columns)[i]
+                    freq_score += freq_df.loc[digit, col]
+                pre_scored.append((combo, freq_score))
+            pre_scored.sort(key=lambda x: x[1], reverse=True)
+            combinations = [combo for combo, _ in pre_scored[:max_combinations]]
         
         # 各組み合わせのスコアを計算
         scored_combinations = []
@@ -1419,128 +1507,88 @@ class LotteryAnalyzer:
                 score += freq_score * 0.3  # 重み: 0.3
             
             # 2. 合計値スコア
-            if settings.get('use_sum', False):
-                sum_df = self.analyze_numbers_sum(digits, start_date, end_date)
-                if not sum_df.empty:
-                    combo_sum = sum(int(d) for d in combo)
-                    # 最も出現頻度の高い合計値に近いほど高スコア
-                    most_common_sum = sum_df.loc[sum_df['出現回数'].idxmax(), '合計値']
-                    sum_diff = abs(combo_sum - most_common_sum)
-                    sum_score = max(0, 10 - sum_diff)  # 差が小さいほど高スコア
-                    score += sum_score * 0.1
+            if settings.get('use_sum', False) and cache.get('most_common_sum') is not None:
+                combo_sum = sum(int(d) for d in combo)
+                sum_diff = abs(combo_sum - cache['most_common_sum'])
+                sum_score = max(0, 10 - sum_diff)  # 差が小さいほど高スコア
+                score += sum_score * 0.1
             
             # 3. 奇偶比率スコア
             if settings.get('use_odd_even', False):
-                odd_even = self.analyze_numbers_odd_even_ratio(digits, start_date, end_date)
-                if odd_even:
-                    avg_odd = odd_even.get('平均奇数個数', digits / 2)
-                    combo_odd = sum(1 for d in combo if int(d) % 2 == 1)
-                    odd_diff = abs(combo_odd - avg_odd)
-                    odd_score = max(0, 5 - odd_diff)
-                    score += odd_score * 0.1
+                combo_odd = sum(1 for d in combo if int(d) % 2 == 1)
+                odd_diff = abs(combo_odd - cache.get('avg_odd', digits / 2))
+                odd_score = max(0, 5 - odd_diff)
+                score += odd_score * 0.1
             
             # 4. 大小比率スコア
             if settings.get('use_high_low', False):
-                high_low = self.analyze_numbers_high_low_ratio(digits, start_date, end_date)
-                if high_low:
-                    avg_high = high_low.get('平均高数字個数', digits / 2)
-                    combo_high = sum(1 for d in combo if int(d) >= 5)
-                    high_diff = abs(combo_high - avg_high)
-                    high_score = max(0, 5 - high_diff)
-                    score += high_score * 0.1
+                combo_high = sum(1 for d in combo if int(d) >= 5)
+                high_diff = abs(combo_high - cache.get('avg_high', digits / 2))
+                high_score = max(0, 5 - high_diff)
+                score += high_score * 0.1
             
             # 5. 連番スコア
             if settings.get('use_consecutive', False):
-                consecutive_df = self.analyze_numbers_consecutive(digits, start_date, end_date)
-                if not consecutive_df.empty:
-                    # 連番があるかチェック
-                    has_consecutive = False
-                    for i in range(len(combo) - 1):
-                        if combo[i+1] == combo[i] + 1:
-                            has_consecutive = True
-                            break
-                    if has_consecutive:
-                        score += 2.0 * 0.05
+                has_consecutive = False
+                for i in range(len(combo) - 1):
+                    if combo[i+1] == combo[i] + 1:
+                        has_consecutive = True
+                        break
+                if has_consecutive:
+                    score += 2.0 * 0.05
             
             # 6. 重複スコア
             if settings.get('use_duplicates', False):
-                duplicates = self.analyze_numbers_duplicates(digits, start_date, end_date)
-                if duplicates:
-                    combo_counts = Counter(combo)
-                    max_count = max(combo_counts.values())
-                    # ダブルが適度にある場合にスコア
-                    if max_count == 2:
-                        score += 1.5 * 0.05
+                combo_counts = Counter(combo)
+                max_count = max(combo_counts.values())
+                # ダブルが適度にある場合にスコア
+                if max_count == 2:
+                    score += 1.5 * 0.05
             
             # 7. デジタルルートスコア
-            if settings.get('use_digital_root', False):
-                root_df = self.analyze_numbers_digital_root(digits, start_date, end_date)
-                if not root_df.empty:
-                    def digital_root(n):
-                        while n >= 10:
-                            n = sum(int(d) for d in str(n))
-                        return n
-                    combo_root = digital_root(sum(combo))
-                    most_common_root = root_df.loc[root_df['出現回数'].idxmax(), 'デジタルルート']
-                    if combo_root == most_common_root:
-                        score += 1.0 * 0.05
+            if settings.get('use_digital_root', False) and cache.get('most_common_root') is not None:
+                def digital_root(n):
+                    while n >= 10:
+                        n = sum(int(d) for d in str(n))
+                    return n
+                combo_root = digital_root(sum(combo))
+                if combo_root == cache['most_common_root']:
+                    score += 1.0 * 0.05
             
             # 8. トレンドスコア
-            if settings.get('use_trend', False):
-                trend_df = self.analyze_numbers_trend(digits, periods=10, start_date=start_date, end_date=end_date)
-                if not trend_df.empty:
-                    for i, digit in enumerate(combo):
-                        col = f'桁{i+1}'
-                        if col in trend_df['桁'].values:
-                            trend_avg = trend_df[trend_df['桁'] == i+1][f'過去10回平均'].values[0]
-                            trend_diff = abs(digit - trend_avg)
-                            trend_score = max(0, 5 - trend_diff)
-                            score += trend_score * 0.05
+            if settings.get('use_trend', False) and cache.get('trend_avg'):
+                for i, digit in enumerate(combo):
+                    if i in cache['trend_avg']:
+                        trend_diff = abs(digit - cache['trend_avg'][i])
+                        trend_score = max(0, 5 - trend_diff)
+                        score += trend_score * 0.05
             
             # 9. EMAスコア
-            if settings.get('use_ema', False):
-                ema_df = self.analyze_numbers_ema(digits, span=10, start_date=start_date, end_date=end_date)
-                if not ema_df.empty:
-                    for i, digit in enumerate(combo):
-                        col = f'桁{i+1}'
-                        if col in ema_df['桁'].values:
-                            ema_value = ema_df[ema_df['桁'] == i+1]['EMA(10)'].values[0]
-                            ema_diff = abs(digit - ema_value)
-                            ema_score = max(0, 5 - ema_diff)
-                            score += ema_score * 0.05
+            if settings.get('use_ema', False) and cache.get('ema_value'):
+                for i, digit in enumerate(combo):
+                    if i in cache['ema_value']:
+                        ema_diff = abs(digit - cache['ema_value'][i])
+                        ema_score = max(0, 5 - ema_diff)
+                        score += ema_score * 0.05
             
             # 10. マルコフ連鎖スコア
-            if settings.get('use_markov', False):
-                markov_matrices = self.analyze_numbers_markov(digits, start_date, end_date)
-                if markov_matrices:
-                    # 最新のデータを取得して遷移確率を計算
-                    if digits == 3:
-                        df = self.db.get_numbers3_data(start_date, end_date)
-                    else:
-                        df = self.db.get_numbers_data(start_date, end_date)
-                    
-                    if not df.empty:
-                        df = df.sort_values('draw_date')
-                        last_number = df.iloc[-1]['winning_number']
-                        
-                        markov_score = 0
-                        for i, digit in enumerate(combo):
-                            col = f'桁{i+1}'
-                            if col in markov_matrices:
-                                try:
-                                    prev_digit = int(last_number[i])
-                                    # 遷移確率行列に存在するかチェック
-                                    if (prev_digit in markov_matrices[col].index and 
-                                        digit in markov_matrices[col].columns):
-                                        transition_prob = markov_matrices[col].loc[prev_digit, digit]
-                                        markov_score += transition_prob
-                                    else:
-                                        # 存在しない場合はデフォルト値（0）を使用
-                                        markov_score += 0.0
-                                except (ValueError, IndexError, KeyError):
-                                    # エラーが発生した場合はスキップ
-                                    markov_score += 0.0
-                        score += markov_score * 0.1
+            if settings.get('use_markov', False) and cache.get('markov_matrices') and cache.get('last_number'):
+                markov_matrices = cache['markov_matrices']
+                last_number = cache['last_number']
+                markov_score = 0
+                for i, digit in enumerate(combo):
+                    col = f'桁{i+1}'
+                    if col in markov_matrices:
+                        try:
+                            prev_digit = int(last_number[i])
+                            # 遷移確率行列に存在するかチェック
+                            if (prev_digit in markov_matrices[col].index and 
+                                digit in markov_matrices[col].columns):
+                                transition_prob = markov_matrices[col].loc[prev_digit, digit]
+                                markov_score += transition_prob
+                        except (ValueError, IndexError, KeyError):
+                            pass
+                score += markov_score * 0.1
             
             scored_combinations.append((combo, score, combo_str))
         
